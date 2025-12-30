@@ -115,7 +115,25 @@ function sanitizeFilename(name) {
 }
 
 /**
- * Convert HTML content to EPUB using pandoc
+ * Escape text for YAML (handle quotes, newlines, etc.)
+ */
+function escapeYaml(text) {
+  if (!text) return '""';
+
+  // Replace problematic characters
+  text = text
+    .replace(/\\/g, "\\\\") // Escape backslashes
+    .replace(/"/g, '\\"') // Escape quotes
+    .replace(/\n/g, " ") // Replace newlines with spaces
+    .replace(/\r/g, "") // Remove carriage returns
+    .replace(/\t/g, " "); // Replace tabs with spaces
+
+  // Always quote the string to be safe
+  return `"${text}"`;
+}
+
+/**
+ * Convert HTML content to EPUB using pandoc with YAML metadata block
  */
 function convertToEpub(
   htmlContent,
@@ -136,16 +154,20 @@ function convertToEpub(
 
   const tmpDir = debugMode ? process.cwd() : os.tmpdir();
   const safeTitle = sanitizeFilename(title);
-  const htmlPath = path.join(
-    tmpDir,
-    debugMode ? `${safeTitle}.html` : "article.html"
-  );
-  const epubPath = path.join(
-    tmpDir,
-    debugMode ? `${safeTitle}.epub` : "article.epub"
-  );
+  const htmlPath = path.join(tmpDir, `${safeTitle}.html`);
+  const epubPath = path.join(tmpDir, `${safeTitle}.epub`);
+  const metadataPath = path.join(tmpDir, `${safeTitle}.yaml`);
 
-  // Wrap content in proper HTML structure
+  // Create YAML metadata block
+  const yamlMetadata = `---
+title: ${escapeYaml(title)}
+${author ? `author: ${escapeYaml(author)}` : ""}
+lang: en-US
+subject: ${escapeYaml(title)}
+---
+`;
+
+  // Wrap content with YAML metadata block and proper HTML structure
   const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -162,28 +184,16 @@ function convertToEpub(
 
   // Write HTML content to temp file
   fs.writeFileSync(htmlPath, fullHtml, "utf-8");
+  fs.writeFileSync(metadataPath, yamlMetadata, "utf-8");
 
   try {
-    // Escape title and author for shell command
-    const escapedTitle = title.replace(/"/g, '\\"').replace(/\$/g, "\\$");
-    const escapedAuthor = author
-      ? author.replace(/"/g, '\\"').replace(/\$/g, "\\$")
-      : "";
-
-    // Build pandoc command with proper metadata
-    let pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}"`;
-    pandocCmd += ` --metadata title="${escapedTitle}"`;
-
-    if (author) {
-      pandocCmd += ` --metadata author="${escapedAuthor}"`;
-    }
-
-    // pandocCmd += ` --epub-metadata=<(echo '<dc:title>${escapedTitle}</dc:title>')`;
+    // Simple pandoc command - metadata comes from YAML block
+    const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}"`;
 
     // Convert with pandoc
     execSync(pandocCmd, {
       encoding: "utf-8",
-      shell: "/bin/bash", // Need bash for process substitution
+      shell: "/bin/bash",
     });
 
     if (!fs.existsSync(epubPath)) {
@@ -195,6 +205,7 @@ function convertToEpub(
       console.log("✓ EPUB created successfully");
       console.log(`📁 HTML file saved to: ${htmlPath}`);
       console.log(`📁 EPUB file saved to: ${epubPath}`);
+      console.log(`📁 Metadata file saved to: ${metadataPath}`);
     } else {
       console.log("✓ EPUB created successfully");
     }

@@ -103,9 +103,19 @@ async function extractArticle(url) {
 }
 
 /**
+ * Sanitize filename to be safe for filesystem
+ */
+function sanitizeFilename(name) {
+  return name
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '') // Remove invalid characters
+    .replace(/\s+/g, '_')                  // Replace spaces with underscores
+    .substring(0, 100);                     // Limit length
+}
+
+/**
  * Convert HTML content to EPUB using pandoc
  */
-function convertToEpub(htmlContent, title = 'Article') {
+function convertToEpub(htmlContent, title = 'Article', author = null, debugMode = false) {
   console.log('📖 Converting to EPUB format...');
   
   if (!commandExists('pandoc')) {
@@ -117,9 +127,10 @@ function convertToEpub(htmlContent, title = 'Article') {
     process.exit(1);
   }
   
-  const tmpDir = os.tmpdir();
-  const htmlPath = path.join(tmpDir, 'article.html');
-  const epubPath = path.join(tmpDir, 'article.epub');
+  const tmpDir = debugMode ? process.cwd() : os.tmpdir();
+  const safeTitle = sanitizeFilename(title);
+  const htmlPath = path.join(tmpDir, debugMode ? `${safeTitle}.html` : 'article.html');
+  const epubPath = path.join(tmpDir, debugMode ? `${safeTitle}.epub` : 'article.epub');
   
   // Wrap content in proper HTML structure
   const fullHtml = `<!DOCTYPE html>
@@ -127,9 +138,11 @@ function convertToEpub(htmlContent, title = 'Article') {
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
+  ${author ? `<meta name="author" content="${author}">` : ''}
 </head>
 <body>
   <h1>${title}</h1>
+  ${author ? `<p style="font-style: italic;">by ${author}</p>` : ''}
   ${htmlContent}
 </body>
 </html>`;
@@ -138,9 +151,23 @@ function convertToEpub(htmlContent, title = 'Article') {
   fs.writeFileSync(htmlPath, fullHtml, 'utf-8');
   
   try {
+    // Escape title and author for shell command
+    const escapedTitle = title.replace(/"/g, '\\"').replace(/\$/g, '\\$');
+    const escapedAuthor = author ? author.replace(/"/g, '\\"').replace(/\$/g, '\\$') : '';
+    
+    // Build pandoc command with proper metadata
+    let pandocCmd = `pandoc "${htmlPath}" -o "${epubPath}"`;
+    pandocCmd += ` --metadata title="${escapedTitle}"`;
+    pandocCmd += ` --metadata lang="en"`;
+    if (author) {
+      pandocCmd += ` --metadata author="${escapedAuthor}"`;
+    }
+    pandocCmd += ` --epub-metadata=<(echo '<dc:title>${escapedTitle}</dc:title>')`;
+    
     // Convert with pandoc
-    execSync(`pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata title="${title.replace(/"/g, '\\"')}"`, {
+    execSync(pandocCmd, {
       encoding: 'utf-8',
+      shell: '/bin/bash', // Need bash for process substitution
     });
     
     if (!fs.existsSync(epubPath)) {
@@ -148,7 +175,14 @@ function convertToEpub(htmlContent, title = 'Article') {
       process.exit(1);
     }
     
-    console.log('✓ EPUB created successfully');
+    if (debugMode) {
+      console.log('✓ EPUB created successfully');
+      console.log(`📁 HTML file saved to: ${htmlPath}`);
+      console.log(`📁 EPUB file saved to: ${epubPath}`);
+    } else {
+      console.log('✓ EPUB created successfully');
+    }
+    
     return epubPath;
   } catch (error) {
     console.error(`❌ Error converting to EPUB: ${error.message}`);
@@ -225,21 +259,46 @@ async function sendToKindle(filePath) {
 }
 
 /**
+ * Parse command line arguments
+ */
+function parseArgs(args) {
+  const result = {
+    debug: false,
+    input: null,
+  };
+  
+  for (let i = 2; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--debug' || arg === '-d') {
+      result.debug = true;
+    } else if (!arg.startsWith('-')) {
+      result.input = arg;
+    }
+  }
+  
+  return result;
+}
+
+/**
  * Main function
  */
 async function main() {
-  const input = process.argv[2];
+  const args = parseArgs(process.argv);
   
-  if (!input) {
+  if (!args.input) {
     console.log('Send to Kindle - Send articles and PDFs to your Kindle device');
     console.log('');
-    console.log('Usage: send2kindle.js <url-or-pdf-path>');
+    console.log('Usage: send2kindle.js [options] <url-or-pdf-path>');
+    console.log('');
+    console.log('Options:');
+    console.log('  --debug, -d   Save EPUB in current directory instead of sending to Kindle');
     console.log('');
     console.log('Examples:');
     console.log('  send2kindle.js https://example.com/article');
     console.log('  send2kindle.js /path/to/document.pdf');
+    console.log('  send2kindle.js --debug https://example.com/article');
     console.log('');
-    console.log('Required environment variables:');
+    console.log('Required environment variables (not needed in debug mode):');
     console.log('  SMTP_USER     - Your email address');
     console.log('  SMTP_PASSWORD - Your email password (or app password)');
     console.log('');
@@ -250,30 +309,52 @@ async function main() {
     process.exit(1);
   }
   
-  const inputType = getInputType(input);
+  const inputType = getInputType(args.input);
   let fileToSend;
+  
+  if (args.debug) {
+    console.log('🐛 DEBUG MODE: EPUB will be saved to current directory');
+    console.log('');
+  }
   
   switch (inputType) {
     case 'url':
       console.log('🔗 Input detected: URL');
-      const article = await extractArticle(input);
-      fileToSend = convertToEpub(article.content, article.title);
+      const article = await extractArticle(args.input);
+      fileToSend = convertToEpub(
+        article.content, 
+        article.title,
+        article.byline || article.siteName,
+        args.debug
+      );
       break;
       
     case 'pdf':
       console.log('📄 Input detected: PDF file');
-      if (!fs.existsSync(input)) {
-        console.error(`❌ Error: PDF file not found: ${input}`);
+      if (!fs.existsSync(args.input)) {
+        console.error(`❌ Error: PDF file not found: ${args.input}`);
         process.exit(1);
       }
-      fileToSend = path.resolve(input);
+      fileToSend = path.resolve(args.input);
       console.log(`✓ PDF file found: ${fileToSend}`);
+      
+      if (args.debug) {
+        console.log('');
+        console.log('⚠️  Note: Debug mode only applies to URL-based articles.');
+        console.log('PDF files are ready to send as-is.');
+      }
       break;
       
     case 'file':
       console.log('📁 Input detected: File');
-      fileToSend = path.resolve(input);
+      fileToSend = path.resolve(args.input);
       console.log(`✓ File found: ${fileToSend}`);
+      
+      if (args.debug) {
+        console.log('');
+        console.log('⚠️  Note: Debug mode only applies to URL-based articles.');
+        console.log('Existing files are ready to send as-is.');
+      }
       break;
       
     default:
@@ -282,7 +363,13 @@ async function main() {
       process.exit(1);
   }
   
-  await sendToKindle(fileToSend);
+  if (args.debug && inputType === 'url') {
+    console.log('');
+    console.log('✅ Debug mode: EPUB created but NOT sent to Kindle');
+    console.log('📖 You can now open the EPUB file with your local reader to verify it.');
+  } else {
+    await sendToKindle(fileToSend);
+  }
 }
 
 // Run main function

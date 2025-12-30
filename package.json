@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Send articles and PDFs to your Kindle device",
   "main": "send2kindle.js",
+  "bin": {
+    "send2kindle": "./send2kindle.js"
+  },
   "scripts": {
     "start": "node send2kindle.js"
   },

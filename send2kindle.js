@@ -153,6 +153,7 @@ function convertToEpub(
   }
 
   const tmpDir = debugMode ? process.cwd() : os.tmpdir();
+  const escapedTitle = escapeYaml(title);
   const safeTitle = sanitizeFilename(title);
   const htmlPath = path.join(tmpDir, `${safeTitle}.html`);
   const epubPath = path.join(tmpDir, `${safeTitle}.epub`);
@@ -160,10 +161,10 @@ function convertToEpub(
 
   // Create YAML metadata block
   const yamlMetadata = `---
-title: ${escapeYaml(title)}
+title: ${escapedTitle}
 ${author ? `author: ${escapeYaml(author)}` : ""}
 lang: en-US
-subject: ${escapeYaml(title)}
+subject: ${escapedTitle}
 ---
 `;
 
@@ -172,11 +173,11 @@ subject: ${escapeYaml(title)}
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${title}</title>
+  <title>${escapedTitle}</title>
   ${author ? `<meta name="author" content="${author}">` : ""}
 </head>
 <body>
-  <h1>${title}</h1>
+  <h1>${escapedTitle}</h1>
   ${author ? `<p style="font-style: italic;">by ${author}</p>` : ""}
   ${htmlContent}
 </body>

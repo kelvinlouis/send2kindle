@@ -1,0 +1,22 @@
+{
+  "name": "send2kindle",
+  "version": "1.0.0",
+  "description": "Send articles and PDFs to your Kindle device",
+  "main": "send2kindle.js",
+  "scripts": {
+    "start": "node send2kindle.js"
+  },
+  "keywords": [
+    "kindle",
+    "ebook",
+    "readability",
+    "epub"
+  ],
+  "author": "goose",
+  "license": "MIT",
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^24.0.0",
+    "nodemailer": "^6.9.0"
+  }
+}

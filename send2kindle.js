@@ -129,7 +129,14 @@ export async function main() {
 }
 
 const __filename = fileURLToPath(import.meta.url);
-if (process.argv[1] === __filename) {
+const __argv1 = (() => {
+  try {
+    return fs.realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1];
+  }
+})();
+if (__argv1 === __filename) {
   main().catch((error) => {
     console.error(`\u274C Error: ${error.message}`);
     process.exit(1);

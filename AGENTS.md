@@ -14,7 +14,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 - Write small, focused functions that do one thing (Single Responsibility)
 - Name functions and variables to reveal intent — avoid abbreviations and generic names
-- Keep functions short; extract when a block needs a comment to explain *what* it does
+- Keep functions short; extract when a block needs a comment to explain _what_ it does
 - No dead code, no commented-out code — delete it (git has history)
 - Avoid magic numbers/strings — use named constants
 - Prefer early returns over deeply nested conditionals
@@ -30,6 +30,7 @@ Follow Red-Green-Refactor for all code changes:
 3. **Refactor** — Clean up while keeping tests green
 
 Rules:
+
 - Never write production code without a failing test first
 - Run `npm test` after every change — never leave tests red
 - One logical assertion per test; test names describe the behavior, not the implementation

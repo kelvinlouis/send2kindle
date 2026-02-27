@@ -19,7 +19,7 @@
     "readability",
     "epub"
   ],
-  "author": "goose",
+  "author": "Kelvin Louis",
   "license": "MIT",
   "devDependencies": {
     "prettier": "^3.8.1",

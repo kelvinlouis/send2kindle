@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isTwitterUrl, extractTweet } from './twitter.js';
+import { isTwitterUrl, extractTweet, convertArticleBlocksToHtml } from './twitter.js';
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -25,6 +25,122 @@ describe('isTwitterUrl', () => {
 
   it('returns false for twitter.com profile without status', () => {
     expect(isTwitterUrl('https://twitter.com/user/likes')).toBe(false);
+  });
+});
+
+describe('convertArticleBlocksToHtml', () => {
+  it('resolves atomic blocks to inline images via entityMap and mediaEntities', () => {
+    const blocks = [
+      { type: 'unstyled', text: 'Before image', entityRanges: [], inlineStyleRanges: [] },
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 1, length: 1, offset: 0 }],
+        data: {},
+      },
+      { type: 'unstyled', text: 'After image', entityRanges: [], inlineStyleRanges: [] },
+    ];
+    const entityMap = [
+      {
+        key: '1',
+        value: {
+          type: 'MEDIA',
+          data: { mediaItems: [{ mediaId: '111222333' }] },
+          mutability: 'Immutable',
+        },
+      },
+    ];
+    const mediaEntities = [
+      {
+        media_id: '111222333',
+        media_info: { original_img_url: 'https://pbs.twimg.com/media/test-image.png' },
+      },
+    ];
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
+    expect(html).toContain('<p>Before image</p>');
+    expect(html).toContain(
+      '<img src="https://pbs.twimg.com/media/test-image.png" alt="Article image"',
+    );
+    expect(html).toContain('<p>After image</p>');
+  });
+
+  it('skips atomic blocks when entityMap or mediaEntities are missing', () => {
+    const blocks = [
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 1, length: 1, offset: 0 }],
+        data: {},
+      },
+    ];
+    const html = convertArticleBlocksToHtml(blocks);
+    expect(html).not.toContain('<img');
+  });
+
+  it('skips atomic blocks when media entity has no matching mediaId', () => {
+    const blocks = [
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 1, length: 1, offset: 0 }],
+        data: {},
+      },
+    ];
+    const entityMap = [
+      {
+        key: '1',
+        value: {
+          type: 'MEDIA',
+          data: { mediaItems: [{ mediaId: '999' }] },
+          mutability: 'Immutable',
+        },
+      },
+    ];
+    const mediaEntities = [
+      {
+        media_id: '000',
+        media_info: { original_img_url: 'https://pbs.twimg.com/media/other.png' },
+      },
+    ];
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
+    expect(html).not.toContain('<img');
+  });
+
+  it('resolves multiple atomic blocks to their respective images', () => {
+    const blocks = [
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 1, length: 1, offset: 0 }],
+        data: {},
+      },
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 2, length: 1, offset: 0 }],
+        data: {},
+      },
+    ];
+    const entityMap = [
+      {
+        key: '1',
+        value: { type: 'MEDIA', data: { mediaItems: [{ mediaId: 'aaa' }] } },
+      },
+      {
+        key: '2',
+        value: { type: 'MEDIA', data: { mediaItems: [{ mediaId: 'bbb' }] } },
+      },
+    ];
+    const mediaEntities = [
+      { media_id: 'aaa', media_info: { original_img_url: 'https://img.com/first.png' } },
+      { media_id: 'bbb', media_info: { original_img_url: 'https://img.com/second.png' } },
+    ];
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
+    expect(html).toContain('https://img.com/first.png');
+    expect(html).toContain('https://img.com/second.png');
   });
 });
 
@@ -161,6 +277,73 @@ describe('extractTweet', () => {
       expect(result.content).toContain('<li>Bullet</li>');
       expect(result.content).toContain('<br/>');
       expect(result.content).toContain('<p>Normal paragraph</p>');
+    });
+
+    it('embeds inline images from article media_entities', async () => {
+      mockFetchResponse({
+        code: 200,
+        tweet: {
+          author: { name: 'Ray', screen_name: 'ray' },
+          article: {
+            title: 'Article With Images',
+            content: {
+              blocks: [
+                { type: 'unstyled', text: 'Intro text', entityRanges: [] },
+                {
+                  type: 'atomic',
+                  text: ' ',
+                  entityRanges: [{ key: 1, length: 1, offset: 0 }],
+                  data: {},
+                },
+                { type: 'unstyled', text: 'More text', entityRanges: [] },
+                {
+                  type: 'atomic',
+                  text: ' ',
+                  entityRanges: [{ key: 2, length: 1, offset: 0 }],
+                  data: {},
+                },
+              ],
+              entityMap: [
+                {
+                  key: '1',
+                  value: {
+                    type: 'MEDIA',
+                    data: { mediaItems: [{ mediaId: '100' }] },
+                    mutability: 'Immutable',
+                  },
+                },
+                {
+                  key: '2',
+                  value: {
+                    type: 'MEDIA',
+                    data: { mediaItems: [{ mediaId: '200' }] },
+                    mutability: 'Immutable',
+                  },
+                },
+              ],
+            },
+            media_entities: [
+              {
+                media_id: '100',
+                media_info: { original_img_url: 'https://pbs.twimg.com/media/chart1.png' },
+              },
+              {
+                media_id: '200',
+                media_info: { original_img_url: 'https://pbs.twimg.com/media/chart2.png' },
+              },
+            ],
+            cover_media: {
+              media_info: { original_img_url: 'https://pbs.twimg.com/media/cover.jpg' },
+            },
+          },
+        },
+      });
+      const result = await extractTweet('https://x.com/ray/status/999');
+      expect(result.content).toContain('https://pbs.twimg.com/media/cover.jpg');
+      expect(result.content).toContain('https://pbs.twimg.com/media/chart1.png');
+      expect(result.content).toContain('https://pbs.twimg.com/media/chart2.png');
+      expect(result.content).toContain('<p>Intro text</p>');
+      expect(result.content).toContain('<p>More text</p>');
     });
   });
 

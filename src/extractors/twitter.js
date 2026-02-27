@@ -6,9 +6,35 @@ export function isTwitterUrl(url) {
 }
 
 /**
+ * Build a lookup: entityMap key → image URL, using entityMap + media_entities
+ */
+function buildMediaLookup(entityMap, mediaEntities) {
+  if (!entityMap || !mediaEntities) return new Map();
+
+  const mediaById = new Map();
+  for (const entity of mediaEntities) {
+    if (entity.media_id && entity.media_info?.original_img_url) {
+      mediaById.set(entity.media_id, entity.media_info.original_img_url);
+    }
+  }
+
+  const lookup = new Map();
+  for (const entry of entityMap) {
+    if (entry.value?.type !== 'MEDIA') continue;
+    const mediaId = entry.value.data?.mediaItems?.[0]?.mediaId;
+    if (mediaId && mediaById.has(mediaId)) {
+      lookup.set(String(entry.key), mediaById.get(mediaId));
+    }
+  }
+
+  return lookup;
+}
+
+/**
  * Convert Twitter article blocks to HTML
  */
-export function convertArticleBlocksToHtml(blocks) {
+export function convertArticleBlocksToHtml(blocks, entityMap, mediaEntities) {
+  const mediaLookup = buildMediaLookup(entityMap, mediaEntities);
   let html = '';
 
   for (const block of blocks) {
@@ -37,8 +63,14 @@ export function convertArticleBlocksToHtml(blocks) {
       case 'unordered-list-item':
         html += `<li>${text}</li>\n`;
         break;
-      case 'atomic':
+      case 'atomic': {
+        const entityKey = String(block.entityRanges?.[0]?.key);
+        const imgUrl = mediaLookup.get(entityKey);
+        if (imgUrl) {
+          html += `<p><img src="${imgUrl}" alt="Article image" style="max-width: 100%;"></p>\n`;
+        }
         break;
+      }
       case 'unstyled':
       default:
         if (text.trim()) {
@@ -96,8 +128,10 @@ export async function extractTweet(url) {
 
     const articleTitle = tweet.article.title || `Article by @${authorHandle}`;
     const blocks = tweet.article.content.blocks;
+    const entityMap = tweet.article.content.entityMap;
+    const mediaEntities = tweet.article.media_entities;
 
-    const articleHtml = convertArticleBlocksToHtml(blocks);
+    const articleHtml = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
 
     const plainText = blocks
       .map((block) => block.text || '')

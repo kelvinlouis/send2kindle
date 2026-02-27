@@ -1,8 +1,10 @@
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
+import { tryExtractFromNextData } from './next-data.js';
 
 /**
- * Extract article content from URL using @mozilla/readability
+ * Extract article content from URL.
+ * Tries Next.js __NEXT_DATA__ first, falls back to @mozilla/readability.
  */
 export async function extractArticle(url) {
   console.log(`\u{1F4F0} Extracting article from: ${url}`);
@@ -21,6 +23,13 @@ export async function extractArticle(url) {
   }
 
   const html = await response.text();
+
+  const nextDataResult = tryExtractFromNextData(html, url);
+  if (nextDataResult) {
+    console.log(`\u2713 Extracted article: "${nextDataResult.title}"`);
+    return nextDataResult;
+  }
+
   const dom = new JSDOM(html, { url });
   const reader = new Readability(dom.window.document);
   const article = reader.parse();

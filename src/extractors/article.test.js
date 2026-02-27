@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Readability } from '@mozilla/readability';
+import { tryExtractFromNextData } from './next-data.js';
 import { extractArticle } from './article.js';
 
 const mockParse = vi.fn();
@@ -12,6 +13,10 @@ vi.mock('jsdom', () => ({
   JSDOM: vi.fn(() => ({
     window: { document: {} },
   })),
+}));
+
+vi.mock('./next-data.js', () => ({
+  tryExtractFromNextData: vi.fn(() => null),
 }));
 
 beforeEach(() => {
@@ -81,5 +86,36 @@ describe('extractArticle', () => {
     });
     const result = await extractArticle('https://example.com');
     expect(result.title).toBe('Article');
+  });
+
+  it('uses __NEXT_DATA__ when available, skipping Readability', async () => {
+    const nextDataResult = {
+      title: 'Next.js Article',
+      content: '<p>Article from __NEXT_DATA__</p>',
+      textContent: 'Article from __NEXT_DATA__',
+      byline: 'Author',
+      siteName: null,
+    };
+    tryExtractFromNextData.mockReturnValue(nextDataResult);
+
+    const result = await extractArticle('https://example.com');
+    expect(result).toEqual(nextDataResult);
+    expect(Readability).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Readability when __NEXT_DATA__ returns null', async () => {
+    tryExtractFromNextData.mockReturnValue(null);
+    const longContent = 'x'.repeat(200);
+    mockParse.mockReturnValue({
+      title: 'Readability Article',
+      content: longContent,
+      textContent: longContent,
+      byline: 'Author',
+      siteName: 'Site',
+    });
+
+    const result = await extractArticle('https://example.com');
+    expect(result.title).toBe('Readability Article');
+    expect(Readability).toHaveBeenCalled();
   });
 });

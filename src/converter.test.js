@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
-import { commandExists } from './utils.js';
+import { commandExists, replaceYouTubeEmbeds } from './utils.js';
 import { convertToEpub } from './converter.js';
 
 vi.mock('child_process', () => ({
@@ -24,6 +24,12 @@ vi.mock('./utils.js', () => ({
   commandExists: vi.fn(),
   sanitizeFilename: vi.fn((name) => name.replace(/\s+/g, '_')),
   escapeYaml: vi.fn((text) => `"${text || ''}"`),
+  replaceYouTubeEmbeds: vi.fn((html) =>
+    html.replace(
+      /<iframe[^>]*youtube[^>]*><\/iframe>/g,
+      '<p><a href="https://www.youtube.com/watch?v=test">Video (YouTube)</a></p>',
+    ),
+  ),
 }));
 
 beforeEach(() => {
@@ -117,5 +123,16 @@ describe('convertToEpub', () => {
     convertToEpub({ htmlContent: '<p>test</p>' });
     const htmlContent = fs.writeFileSync.mock.calls[0][1];
     expect(htmlContent).toContain('Article');
+  });
+
+  it('replaces YouTube iframes before writing HTML', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    const htmlWithIframe =
+      '<p>text</p><iframe src="https://www.youtube.com/embed/abc" title="My Vid"></iframe>';
+    convertToEpub({ htmlContent: htmlWithIframe, title: 'Test' });
+    expect(replaceYouTubeEmbeds).toHaveBeenCalledWith(htmlWithIframe);
+    const writtenHtml = fs.writeFileSync.mock.calls[0][1];
+    expect(writtenHtml).not.toContain('<iframe');
   });
 });

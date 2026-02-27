@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { commandExists, sanitizeFilename, escapeYaml } from './utils.js';
+import { commandExists, sanitizeFilename, escapeYaml, replaceYouTubeEmbeds } from './utils.js';
 
 /**
  * Convert HTML content to EPUB using pandoc with YAML metadata block.
@@ -46,6 +46,8 @@ subject: ${escapedTitle}
 ---
 `;
 
+  const kindleFriendlyContent = replaceYouTubeEmbeds(htmlContent);
+
   const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -56,7 +58,7 @@ subject: ${escapedTitle}
 <body>
   <h1>${escapedTitle}</h1>
   ${author ? `<p style="font-style: italic;">by ${author}</p>` : ''}
-  ${htmlContent}
+  ${kindleFriendlyContent}
 </body>
 </html>`;
 

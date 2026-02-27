@@ -1,6 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import { tryExtractFromNextData } from './next-data.js';
+import { fixPictureSources } from '../utils.js';
 
 /**
  * Extract article content from URL.
@@ -22,7 +23,8 @@ export async function extractArticle(url) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  const html = await response.text();
+  const rawHtml = await response.text();
+  const html = fixPictureSources(rawHtml);
 
   const nextDataResult = tryExtractFromNextData(html, url);
   if (nextDataResult) {

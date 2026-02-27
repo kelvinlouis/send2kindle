@@ -1,8 +1,8 @@
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const { commandExists, sanitizeFilename, escapeYaml } = require("./utils");
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { commandExists, sanitizeFilename, escapeYaml } from './utils.js';
 
 /**
  * Convert HTML content to EPUB using pandoc with YAML metadata block.
@@ -14,15 +14,20 @@ const { commandExists, sanitizeFilename, escapeYaml } = require("./utils");
  * @param {boolean} [options.debugMode=false] - Save files to cwd instead of tmpdir
  * @returns {string} Path to the created EPUB file
  */
-function convertToEpub({ htmlContent, title = "Article", author = null, debugMode = false }) {
-  console.log("\u{1F4D6} Converting to EPUB format...");
+export function convertToEpub({
+  htmlContent,
+  title = 'Article',
+  author = null,
+  debugMode = false,
+}) {
+  console.log('\u{1F4D6} Converting to EPUB format...');
 
-  if (!commandExists("pandoc")) {
+  if (!commandExists('pandoc')) {
     throw new Error(
-      "pandoc is not installed. Install with your package manager:\n" +
-        "  Ubuntu/Debian: sudo apt install pandoc\n" +
-        "  macOS: brew install pandoc\n" +
-        "  Fedora: sudo dnf install pandoc"
+      'pandoc is not installed. Install with your package manager:\n' +
+        '  Ubuntu/Debian: sudo apt install pandoc\n' +
+        '  macOS: brew install pandoc\n' +
+        '  Fedora: sudo dnf install pandoc',
     );
   }
 
@@ -35,7 +40,7 @@ function convertToEpub({ htmlContent, title = "Article", author = null, debugMod
 
   const yamlMetadata = `---
 title: ${escapedTitle}
-${author ? `author: ${escapeYaml(author)}` : ""}
+${author ? `author: ${escapeYaml(author)}` : ''}
 lang: en-US
 subject: ${escapedTitle}
 ---
@@ -46,39 +51,37 @@ subject: ${escapedTitle}
 <head>
   <meta charset="utf-8">
   <title>${escapedTitle}</title>
-  ${author ? `<meta name="author" content="${author}">` : ""}
+  ${author ? `<meta name="author" content="${author}">` : ''}
 </head>
 <body>
   <h1>${escapedTitle}</h1>
-  ${author ? `<p style="font-style: italic;">by ${author}</p>` : ""}
+  ${author ? `<p style="font-style: italic;">by ${author}</p>` : ''}
   ${htmlContent}
 </body>
 </html>`;
 
-  fs.writeFileSync(htmlPath, fullHtml, "utf-8");
-  fs.writeFileSync(metadataPath, yamlMetadata, "utf-8");
+  fs.writeFileSync(htmlPath, fullHtml, 'utf-8');
+  fs.writeFileSync(metadataPath, yamlMetadata, 'utf-8');
 
   const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}"`;
 
   execSync(pandocCmd, {
-    encoding: "utf-8",
-    shell: "/bin/bash",
+    encoding: 'utf-8',
+    shell: '/bin/bash',
   });
 
   if (!fs.existsSync(epubPath)) {
-    throw new Error("EPUB file was not created");
+    throw new Error('EPUB file was not created');
   }
 
   if (debugMode) {
-    console.log("\u2713 EPUB created successfully");
+    console.log('\u2713 EPUB created successfully');
     console.log(`\u{1F4C1} HTML file saved to: ${htmlPath}`);
     console.log(`\u{1F4C1} EPUB file saved to: ${epubPath}`);
     console.log(`\u{1F4C1} Metadata file saved to: ${metadataPath}`);
   } else {
-    console.log("\u2713 EPUB created successfully");
+    console.log('\u2713 EPUB created successfully');
   }
 
   return epubPath;
 }
-
-module.exports = { convertToEpub };

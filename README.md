@@ -103,6 +103,10 @@ If using Gmail as your SMTP provider:
 2. Create an App Password at https://myaccount.google.com/apppasswords
 3. Use the App Password as your `SMTP_PASSWORD`
 
+## For AI agents
+
+See [`AGENTS.md`](./AGENTS.md) for project conventions, commands, and architecture details.
+
 ## License
 
 MIT

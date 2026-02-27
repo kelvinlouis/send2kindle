@@ -31,10 +31,27 @@ function buildMediaLookup(entityMap, mediaEntities) {
 }
 
 /**
+ * Build a set of entity keys that are DIVIDERs
+ */
+function buildDividerSet(entityMap) {
+  if (!entityMap) return new Set();
+
+  const dividers = new Set();
+  for (const entry of entityMap) {
+    if (entry.value?.type === 'DIVIDER') {
+      dividers.add(String(entry.key));
+    }
+  }
+  return dividers;
+}
+
+/**
  * Convert Twitter article blocks to HTML
  */
-export function convertArticleBlocksToHtml(blocks, entityMap, mediaEntities) {
+export function convertArticleBlocksToHtml(blocks, entityMap, mediaEntities, referencedTweets) {
   const mediaLookup = buildMediaLookup(entityMap, mediaEntities);
+  const dividerSet = buildDividerSet(entityMap);
+  const tweetLookup = referencedTweets || new Map();
   let html = '';
 
   for (const block of blocks) {
@@ -68,6 +85,17 @@ export function convertArticleBlocksToHtml(blocks, entityMap, mediaEntities) {
         const imgUrl = mediaLookup.get(entityKey);
         if (imgUrl) {
           html += `<p><img src="${imgUrl}" alt="Article image" style="max-width: 100%;"></p>\n`;
+        } else if (dividerSet.has(entityKey)) {
+          html += `<hr>\n`;
+        } else if (tweetLookup.has(entityKey)) {
+          const tweet = tweetLookup.get(entityKey);
+          const heading =
+            tweet.title ||
+            (tweet.text?.length > 100 ? tweet.text.slice(0, 100) + '...' : tweet.text);
+          html += `<blockquote style="border-left: 3px solid #1da1f2; padding: 10px 15px; margin: 15px 0;">\n`;
+          html += `  <p><strong>${heading}</strong></p>\n`;
+          html += `  <p><em>\u2014 ${tweet.author} (@${tweet.handle})</em> \u00b7 <a href="${tweet.url}">View on X</a></p>\n`;
+          html += `</blockquote>\n`;
         }
         break;
       }
@@ -83,6 +111,51 @@ export function convertArticleBlocksToHtml(blocks, entityMap, mediaEntities) {
   }
 
   return html;
+}
+
+/**
+ * Fetch referenced tweets from entityMap TWEET entries
+ * Returns a Map<entityKey, { author, handle, text, title, url }>
+ */
+export async function fetchReferencedTweets(entityMap) {
+  if (!entityMap) return new Map();
+
+  const tweetEntries = entityMap.filter((entry) => entry.value?.type === 'TWEET');
+  if (tweetEntries.length === 0) return new Map();
+
+  const results = await Promise.allSettled(
+    tweetEntries.map(async (entry) => {
+      const tweetId = entry.value.data?.tweetId;
+      if (!tweetId) return null;
+
+      const response = await fetch(`https://api.fxtwitter.com/i/status/${tweetId}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      if (data.code !== 200 || !data.tweet) return null;
+
+      const tweet = data.tweet;
+      return {
+        key: String(entry.key),
+        author: tweet.author?.name || 'Unknown',
+        handle: tweet.author?.screen_name || '',
+        text: tweet.text || '',
+        title: tweet.article?.title,
+        url: tweet.url || `https://x.com/i/status/${tweetId}`,
+      };
+    }),
+  );
+
+  const lookup = new Map();
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      const { key, ...tweetData } = result.value;
+      lookup.set(key, tweetData);
+    }
+  }
+  return lookup;
 }
 
 /**
@@ -131,7 +204,13 @@ export async function extractTweet(url) {
     const entityMap = tweet.article.content.entityMap;
     const mediaEntities = tweet.article.media_entities;
 
-    const articleHtml = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
+    const referencedTweets = await fetchReferencedTweets(entityMap);
+    const articleHtml = convertArticleBlocksToHtml(
+      blocks,
+      entityMap,
+      mediaEntities,
+      referencedTweets,
+    );
 
     const plainText = blocks
       .map((block) => block.text || '')

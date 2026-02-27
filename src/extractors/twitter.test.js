@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isTwitterUrl, extractTweet, convertArticleBlocksToHtml } from './twitter.js';
+import {
+  isTwitterUrl,
+  extractTweet,
+  convertArticleBlocksToHtml,
+  fetchReferencedTweets,
+} from './twitter.js';
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -108,6 +113,104 @@ describe('convertArticleBlocksToHtml', () => {
     expect(html).not.toContain('<img');
   });
 
+  it('renders <hr> for DIVIDER atomic blocks', () => {
+    const blocks = [
+      { type: 'unstyled', text: 'Before divider', entityRanges: [] },
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 1, length: 1, offset: 0 }],
+        data: {},
+      },
+      { type: 'unstyled', text: 'After divider', entityRanges: [] },
+    ];
+    const entityMap = [
+      {
+        key: '1',
+        value: { type: 'DIVIDER', mutability: 'Immutable' },
+      },
+    ];
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap);
+    expect(html).toContain('<p>Before divider</p>');
+    expect(html).toContain('<hr>');
+    expect(html).toContain('<p>After divider</p>');
+  });
+
+  it('renders tweet blockquote for TWEET atomic blocks', () => {
+    const blocks = [
+      { type: 'unstyled', text: 'Check this tweet:', entityRanges: [] },
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 3, length: 1, offset: 0 }],
+        data: {},
+      },
+      { type: 'unstyled', text: 'End of section', entityRanges: [] },
+    ];
+    const entityMap = [
+      {
+        key: '3',
+        value: { type: 'TWEET', data: { tweetId: '12345' }, mutability: 'Immutable' },
+      },
+    ];
+    const referencedTweets = new Map([
+      [
+        '3',
+        {
+          author: 'Jane Doe',
+          handle: 'janedoe',
+          text: 'This is the full text of the referenced tweet that goes on for a while.',
+          title: 'A Great Thread',
+          url: 'https://x.com/janedoe/status/12345',
+        },
+      ],
+    ]);
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap, undefined, referencedTweets);
+    expect(html).toContain('<p>Check this tweet:</p>');
+    expect(html).toContain('<blockquote');
+    expect(html).toContain('A Great Thread');
+    expect(html).toContain('Jane Doe');
+    expect(html).toContain('@janedoe');
+    expect(html).toContain('View on X');
+    expect(html).toContain('https://x.com/janedoe/status/12345');
+    expect(html).toContain('<p>End of section</p>');
+  });
+
+  it('uses first ~100 chars of text when tweet has no title', () => {
+    const blocks = [
+      {
+        type: 'atomic',
+        text: ' ',
+        entityRanges: [{ key: 5, length: 1, offset: 0 }],
+        data: {},
+      },
+    ];
+    const entityMap = [
+      {
+        key: '5',
+        value: { type: 'TWEET', data: { tweetId: '99999' }, mutability: 'Immutable' },
+      },
+    ];
+    const longText = 'A'.repeat(150);
+    const referencedTweets = new Map([
+      [
+        '5',
+        {
+          author: 'Bob',
+          handle: 'bob',
+          text: longText,
+          url: 'https://x.com/bob/status/99999',
+        },
+      ],
+    ]);
+
+    const html = convertArticleBlocksToHtml(blocks, entityMap, undefined, referencedTweets);
+    expect(html).toContain('A'.repeat(100) + '...');
+    expect(html).not.toContain('A'.repeat(150));
+  });
+
   it('resolves multiple atomic blocks to their respective images', () => {
     const blocks = [
       {
@@ -141,6 +244,119 @@ describe('convertArticleBlocksToHtml', () => {
     const html = convertArticleBlocksToHtml(blocks, entityMap, mediaEntities);
     expect(html).toContain('https://img.com/first.png');
     expect(html).toContain('https://img.com/second.png');
+  });
+});
+
+describe('fetchReferencedTweets', () => {
+  it('fetches tweets and builds lookup by entity key', async () => {
+    const entityMap = [
+      {
+        key: '8',
+        value: { type: 'TWEET', data: { tweetId: '111' }, mutability: 'Immutable' },
+      },
+      {
+        key: '9',
+        value: { type: 'TWEET', data: { tweetId: '222' }, mutability: 'Immutable' },
+      },
+      {
+        key: '1',
+        value: { type: 'DIVIDER', mutability: 'Immutable' },
+      },
+    ];
+
+    fetch.mockImplementation((url) => {
+      if (url.includes('/111')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              code: 200,
+              tweet: {
+                author: { name: 'Alice', screen_name: 'alice' },
+                text: 'First tweet text',
+                url: 'https://x.com/alice/status/111',
+              },
+            }),
+        });
+      }
+      if (url.includes('/222')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              code: 200,
+              tweet: {
+                author: { name: 'Bob', screen_name: 'bob' },
+                text: 'Second tweet text',
+                article: { title: 'Bob Article' },
+                url: 'https://x.com/bob/status/222',
+              },
+            }),
+        });
+      }
+    });
+
+    const result = await fetchReferencedTweets(entityMap);
+    expect(result.size).toBe(2);
+
+    const tweet1 = result.get('8');
+    expect(tweet1.author).toBe('Alice');
+    expect(tweet1.handle).toBe('alice');
+    expect(tweet1.text).toBe('First tweet text');
+
+    const tweet2 = result.get('9');
+    expect(tweet2.author).toBe('Bob');
+    expect(tweet2.handle).toBe('bob');
+    expect(tweet2.title).toBe('Bob Article');
+  });
+
+  it('gracefully skips tweets that fail to fetch', async () => {
+    const entityMap = [
+      {
+        key: '3',
+        value: { type: 'TWEET', data: { tweetId: '111' }, mutability: 'Immutable' },
+      },
+      {
+        key: '4',
+        value: { type: 'TWEET', data: { tweetId: '222' }, mutability: 'Immutable' },
+      },
+    ];
+
+    fetch.mockImplementation((url) => {
+      if (url.includes('/111')) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      if (url.includes('/222')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              code: 200,
+              tweet: {
+                author: { name: 'Bob', screen_name: 'bob' },
+                text: 'Good tweet',
+                url: 'https://x.com/bob/status/222',
+              },
+            }),
+        });
+      }
+    });
+
+    const result = await fetchReferencedTweets(entityMap);
+    expect(result.size).toBe(1);
+    expect(result.has('3')).toBe(false);
+    expect(result.get('4').author).toBe('Bob');
+  });
+
+  it('returns empty map when entityMap is missing', async () => {
+    const result = await fetchReferencedTweets(undefined);
+    expect(result.size).toBe(0);
+  });
+
+  it('returns empty map when no TWEET entities exist', async () => {
+    const entityMap = [{ key: '1', value: { type: 'DIVIDER', mutability: 'Immutable' } }];
+    const result = await fetchReferencedTweets(entityMap);
+    expect(result.size).toBe(0);
   });
 });
 
@@ -345,6 +561,108 @@ describe('extractTweet', () => {
       expect(result.content).toContain('<p>Intro text</p>');
       expect(result.content).toContain('<p>More text</p>');
     });
+  });
+
+  it('embeds referenced tweets from TWEET entities', async () => {
+    fetch.mockImplementation((url) => {
+      // Main article fetch
+      if (url.includes('/writer/status/888')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              code: 200,
+              tweet: {
+                author: { name: 'Writer', screen_name: 'writer' },
+                article: {
+                  title: 'Article With Tweets',
+                  content: {
+                    blocks: [
+                      { type: 'unstyled', text: 'Introduction', entityRanges: [] },
+                      {
+                        type: 'atomic',
+                        text: ' ',
+                        entityRanges: [{ key: 2, length: 1, offset: 0 }],
+                        data: {},
+                      },
+                      { type: 'unstyled', text: 'Conclusion', entityRanges: [] },
+                    ],
+                    entityMap: [
+                      {
+                        key: '2',
+                        value: {
+                          type: 'TWEET',
+                          data: { tweetId: '555' },
+                          mutability: 'Immutable',
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            }),
+        });
+      }
+      // Referenced tweet fetch
+      if (url.includes('/i/status/555')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              code: 200,
+              tweet: {
+                author: { name: 'Quoted', screen_name: 'quoted' },
+                text: 'This is the referenced tweet',
+                url: 'https://x.com/quoted/status/555',
+              },
+            }),
+        });
+      }
+    });
+
+    const result = await extractTweet('https://x.com/writer/status/888');
+    expect(result.content).toContain('<p>Introduction</p>');
+    expect(result.content).toContain('<blockquote');
+    expect(result.content).toContain('This is the referenced tweet');
+    expect(result.content).toContain('Quoted');
+    expect(result.content).toContain('@quoted');
+    expect(result.content).toContain('View on X');
+    expect(result.content).toContain('<p>Conclusion</p>');
+  });
+
+  it('renders <hr> for DIVIDER entities in articles', async () => {
+    mockFetchResponse({
+      code: 200,
+      tweet: {
+        author: { name: 'Writer', screen_name: 'writer' },
+        article: {
+          title: 'Article With Dividers',
+          content: {
+            blocks: [
+              { type: 'unstyled', text: 'Section one', entityRanges: [] },
+              {
+                type: 'atomic',
+                text: ' ',
+                entityRanges: [{ key: 1, length: 1, offset: 0 }],
+                data: {},
+              },
+              { type: 'unstyled', text: 'Section two', entityRanges: [] },
+            ],
+            entityMap: [
+              {
+                key: '1',
+                value: { type: 'DIVIDER', mutability: 'Immutable' },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const result = await extractTweet('https://x.com/writer/status/777');
+    expect(result.content).toContain('<p>Section one</p>');
+    expect(result.content).toContain('<hr>');
+    expect(result.content).toContain('<p>Section two</p>');
   });
 
   describe('Regular tweet', () => {

@@ -121,6 +121,15 @@ If using Gmail as your SMTP provider:
 2. Create an App Password at https://myaccount.google.com/apppasswords
 3. Use the App Password as your `SMTP_PASSWORD`
 
+## Development
+
+```bash
+git clone https://github.com/kelvin-prpl/send2kindle.git
+cd send2kindle
+npm install
+npm link  # exposes `send2kindle` as a global command pointing to your local checkout
+```
+
 ## For AI agents
 
 See [`AGENTS.md`](./AGENTS.md) for project conventions, commands, and architecture details.

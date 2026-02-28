@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import { commandExists, replaceYouTubeEmbeds } from './utils.js';
-import { convertToEpub } from './converter.js';
+import { convertToEpub, convertBookToEpub } from './converter.js';
 
 vi.mock('child_process', () => ({
   execSync: vi.fn(),
@@ -132,6 +132,77 @@ describe('convertToEpub', () => {
       '<p>text</p><iframe src="https://www.youtube.com/embed/abc" title="My Vid"></iframe>';
     convertToEpub({ htmlContent: htmlWithIframe, title: 'Test' });
     expect(replaceYouTubeEmbeds).toHaveBeenCalledWith(htmlWithIframe);
+    const writtenHtml = fs.writeFileSync.mock.calls[0][1];
+    expect(writtenHtml).not.toContain('<iframe');
+  });
+});
+
+describe('convertBookToEpub', () => {
+  const chapters = [
+    { title: 'Chapter One', htmlContent: '<p>First chapter content</p>' },
+    { title: 'Chapter Two', htmlContent: '<p>Second chapter content</p>' },
+  ];
+
+  it('throws when pandoc is not installed', () => {
+    commandExists.mockReturnValue(false);
+    expect(() => convertBookToEpub({ chapters, title: 'My Book' })).toThrow(
+      'pandoc is not installed',
+    );
+  });
+
+  it('wraps each chapter with an h1 heading', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    convertBookToEpub({ chapters, title: 'My Book' });
+    const htmlContent = fs.writeFileSync.mock.calls[0][1];
+    expect(htmlContent).toContain('<h1>Chapter One</h1>');
+    expect(htmlContent).toContain('<h1>Chapter Two</h1>');
+  });
+
+  it('includes all chapter content in the HTML', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    convertBookToEpub({ chapters, title: 'My Book' });
+    const htmlContent = fs.writeFileSync.mock.calls[0][1];
+    expect(htmlContent).toContain('First chapter content');
+    expect(htmlContent).toContain('Second chapter content');
+  });
+
+  it('calls pandoc with --epub-chapter-level=1', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    convertBookToEpub({ chapters, title: 'My Book' });
+    const pandocCmd = execSync.mock.calls[0][0];
+    expect(pandocCmd).toContain('--epub-chapter-level=1');
+  });
+
+  it('uses book title and author in YAML metadata', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    convertBookToEpub({ chapters, title: 'My Book', author: 'Author Name' });
+    const yamlContent = fs.writeFileSync.mock.calls[1][1];
+    expect(yamlContent).toContain('"My Book"');
+    expect(yamlContent).toContain('author:');
+  });
+
+  it('returns the epub path', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    const result = convertBookToEpub({ chapters, title: 'My Book' });
+    expect(result).toMatch(/My_Book\.epub$/);
+  });
+
+  it('replaces YouTube iframes in chapter content', () => {
+    commandExists.mockReturnValue(true);
+    fs.existsSync.mockReturnValue(true);
+    const chaptersWithIframe = [
+      {
+        title: 'Ch1',
+        htmlContent: '<iframe src="https://www.youtube.com/embed/abc" title="Vid"></iframe>',
+      },
+    ];
+    convertBookToEpub({ chapters: chaptersWithIframe, title: 'Book' });
+    expect(replaceYouTubeEmbeds).toHaveBeenCalled();
     const writtenHtml = fs.writeFileSync.mock.calls[0][1];
     expect(writtenHtml).not.toContain('<iframe');
   });

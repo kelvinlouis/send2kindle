@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { loadConfig } from './src/config.js';
 import { getInputType } from './src/utils.js';
 import { extract } from './src/extractors/index.js';
-import { convertToEpub } from './src/converter.js';
+import { convertToEpub, convertBookToEpub } from './src/converter.js';
 import { sendToKindle } from './src/mailer.js';
 
 /**
@@ -16,16 +16,25 @@ export function parseArgs(args) {
   const result = {
     debug: false,
     input: null,
+    inputs: [],
+    book: null,
+    author: null,
   };
 
   for (let i = 2; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--debug' || arg === '-d') {
       result.debug = true;
+    } else if ((arg === '--book' || arg === '-b') && i + 1 < args.length) {
+      result.book = args[++i];
+    } else if ((arg === '--author' || arg === '-a') && i + 1 < args.length) {
+      result.author = args[++i];
     } else if (!arg.startsWith('-')) {
-      result.input = arg;
+      result.inputs.push(arg);
     }
   }
+
+  result.input = result.inputs[0] || null;
 
   return result;
 }
@@ -37,14 +46,19 @@ export function printUsage() {
   console.log('Send to Kindle - Send articles and PDFs to your Kindle device');
   console.log('');
   console.log('Usage: send2kindle [options] <url-or-pdf-path>');
+  console.log('       send2kindle --book "Title" [--author "Name"] <url1> <url2> [url3...]');
   console.log('');
   console.log('Options:');
-  console.log('  --debug, -d   Save EPUB in current directory instead of sending to Kindle');
+  console.log('  --debug, -d            Save EPUB in current directory instead of sending');
+  console.log('  --book, -b <title>     Combine multiple URLs into one book with chapters');
+  console.log('  --author, -a <name>    Set the book author (optional, defaults to first article)');
   console.log('');
   console.log('Examples:');
   console.log('  send2kindle https://example.com/article');
   console.log('  send2kindle /path/to/document.pdf');
   console.log('  send2kindle --debug https://example.com/article');
+  console.log('  send2kindle --book "My Book" https://example.com/ch1 https://example.com/ch2');
+  console.log('  send2kindle -b "My Book" -a "Author" url1 url2 url3');
   console.log('');
   console.log('Required environment variables:');
   console.log('  KINDLE_EMAIL  - Your Kindle email address');
@@ -57,6 +71,34 @@ export function printUsage() {
   console.log('  FROM_EMAIL    - From email (default: SMTP_USER)');
 }
 
+async function handleBookMode(args, config) {
+  for (const url of args.inputs) {
+    if (getInputType(url) !== 'url') {
+      throw new Error('Book mode only supports URLs as inputs');
+    }
+  }
+  if (args.inputs.length < 2) {
+    throw new Error('Book mode requires at least 2 URLs');
+  }
+
+  console.log(`\u{1F4DA} Book mode: "${args.book}" (${args.inputs.length} chapters)`);
+
+  const articles = [];
+  for (const url of args.inputs) {
+    articles.push(await extract(url));
+  }
+
+  const chapters = articles.map((a) => ({ title: a.title, htmlContent: a.content }));
+  const author = args.author || articles[0]?.byline || articles[0]?.siteName || null;
+
+  return convertBookToEpub({
+    chapters,
+    title: args.book,
+    author,
+    debugMode: args.debug,
+  });
+}
+
 export async function main() {
   const args = parseArgs(process.argv);
 
@@ -66,13 +108,26 @@ export async function main() {
   }
 
   const config = loadConfig();
-  const inputType = getInputType(args.input);
-  let fileToSend;
 
   if (args.debug) {
     console.log('\u{1F41B} DEBUG MODE: EPUB will be saved to current directory');
     console.log('');
   }
+
+  if (args.book) {
+    const fileToSend = await handleBookMode(args, config);
+    if (args.debug) {
+      console.log('');
+      console.log('\u2705 Debug mode: EPUB created but NOT sent to Kindle');
+      console.log('\u{1F4D6} You can now open the EPUB file with your local reader to verify it.');
+    } else {
+      await sendToKindle(fileToSend, config);
+    }
+    return;
+  }
+
+  const inputType = getInputType(args.input);
+  let fileToSend;
 
   switch (inputType) {
     case 'url':

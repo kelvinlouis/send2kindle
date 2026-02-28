@@ -60,11 +60,14 @@ CLI tool that sends articles/PDFs to Kindle via email. ESM throughout (`"type": 
 
 **Pipeline:** `send2kindle.js` (entry/CLI) → extract → convert → send
 
-- `send2kindle.js` — CLI entry point, parses args, orchestrates the pipeline
+**Book mode:** `--book "Title"` combines multiple URLs into a single EPUB with chapters.
+Each URL is extracted and becomes a chapter split at `<h1>` boundaries via `--epub-chapter-level=1`.
+
+- `send2kindle.js` — CLI entry point, parses args, orchestrates the pipeline (single-article and book mode)
 - `src/extractors/index.js` — routes URLs to the right extractor (`isTwitterUrl` check)
   - `src/extractors/article.js` — fetches HTML, uses `@mozilla/readability` + `jsdom` to parse
   - `src/extractors/twitter.js` — uses fxtwitter JSON API, handles both tweets and Twitter Articles
-- `src/converter.js` — wraps HTML in a full document, writes YAML metadata, shells out to `pandoc` for EPUB conversion
+- `src/converter.js` — `convertToEpub` (single article) and `convertBookToEpub` (multi-chapter); writes YAML metadata, shells out to `pandoc`
 - `src/mailer.js` — sends file as email attachment via `nodemailer` SMTP
 - `src/config.js` — reads env vars (`KINDLE_EMAIL`, `SMTP_*`, `FROM_EMAIL`)
 - `src/utils.js` — `commandExists`, `getInputType`, `sanitizeFilename`, `escapeYaml`

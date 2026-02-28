@@ -4,7 +4,7 @@ import path from 'path';
 import { loadConfig } from './src/config.js';
 import { getInputType } from './src/utils.js';
 import { extract } from './src/extractors/index.js';
-import { convertToEpub } from './src/converter.js';
+import { convertToEpub, convertBookToEpub } from './src/converter.js';
 import { sendToKindle } from './src/mailer.js';
 import { parseArgs, printUsage, main } from './send2kindle.js';
 
@@ -27,6 +27,7 @@ vi.mock('./src/extractors/index.js', () => ({
 
 vi.mock('./src/converter.js', () => ({
   convertToEpub: vi.fn(() => '/tmp/test.epub'),
+  convertBookToEpub: vi.fn(() => '/tmp/book.epub'),
 }));
 
 vi.mock('./src/mailer.js', () => ({
@@ -70,6 +71,57 @@ describe('parseArgs', () => {
     const result = parseArgs([null, null]);
     expect(result.input).toBeNull();
     expect(result.debug).toBe(false);
+  });
+
+  it('collects multiple non-flag arguments into inputs array', () => {
+    const result = parseArgs([null, null, 'https://a.com', 'https://b.com', 'https://c.com']);
+    expect(result.inputs).toEqual(['https://a.com', 'https://b.com', 'https://c.com']);
+    expect(result.input).toBe('https://a.com');
+  });
+
+  it('parses --book flag with title value', () => {
+    const result = parseArgs([null, null, '--book', 'My Book Title', 'https://a.com']);
+    expect(result.book).toBe('My Book Title');
+    expect(result.inputs).toEqual(['https://a.com']);
+  });
+
+  it('parses -b shorthand for --book', () => {
+    const result = parseArgs([null, null, '-b', 'My Book', 'https://a.com']);
+    expect(result.book).toBe('My Book');
+  });
+
+  it('parses --author flag with value', () => {
+    const result = parseArgs([null, null, '--author', 'John Doe', 'https://a.com']);
+    expect(result.author).toBe('John Doe');
+  });
+
+  it('parses -a shorthand for --author', () => {
+    const result = parseArgs([null, null, '-a', 'Jane Doe', 'https://a.com']);
+    expect(result.author).toBe('Jane Doe');
+  });
+
+  it('parses all flags together', () => {
+    const result = parseArgs([
+      null,
+      null,
+      '--debug',
+      '--book',
+      'My Book',
+      '--author',
+      'Author',
+      'https://a.com',
+      'https://b.com',
+    ]);
+    expect(result.debug).toBe(true);
+    expect(result.book).toBe('My Book');
+    expect(result.author).toBe('Author');
+    expect(result.inputs).toEqual(['https://a.com', 'https://b.com']);
+  });
+
+  it('returns null book and author when not provided', () => {
+    const result = parseArgs([null, null, 'https://a.com']);
+    expect(result.book).toBeNull();
+    expect(result.author).toBeNull();
   });
 });
 
@@ -192,5 +244,96 @@ describe('main', () => {
 
     await main();
     expect(sendToKindle).toHaveBeenCalled();
+  });
+
+  it('extracts each URL and calls convertBookToEpub in book mode', async () => {
+    process.argv = [
+      'node',
+      'send2kindle.js',
+      '--book',
+      'My Book',
+      '--author',
+      'Author',
+      'https://a.com',
+      'https://b.com',
+    ];
+    getInputType.mockReturnValue('url');
+    extract
+      .mockResolvedValueOnce({ content: '<p>ch1</p>', title: 'Ch1', byline: 'A', siteName: 'S' })
+      .mockResolvedValueOnce({ content: '<p>ch2</p>', title: 'Ch2', byline: 'A', siteName: 'S' });
+    convertBookToEpub.mockReturnValue('/tmp/book.epub');
+    sendToKindle.mockResolvedValue(undefined);
+
+    await main();
+
+    expect(extract).toHaveBeenCalledWith('https://a.com');
+    expect(extract).toHaveBeenCalledWith('https://b.com');
+    expect(convertBookToEpub).toHaveBeenCalledWith({
+      chapters: [
+        { title: 'Ch1', htmlContent: '<p>ch1</p>' },
+        { title: 'Ch2', htmlContent: '<p>ch2</p>' },
+      ],
+      title: 'My Book',
+      author: 'Author',
+      debugMode: false,
+    });
+    expect(sendToKindle).toHaveBeenCalledWith('/tmp/book.epub', expect.any(Object));
+  });
+
+  it('uses first article byline as author when --author not provided in book mode', async () => {
+    process.argv = [
+      'node',
+      'send2kindle.js',
+      '--book',
+      'My Book',
+      'https://a.com',
+      'https://b.com',
+    ];
+    getInputType.mockReturnValue('url');
+    extract
+      .mockResolvedValueOnce({ content: '<p>ch1</p>', title: 'Ch1', byline: 'Parker Lewis' })
+      .mockResolvedValueOnce({ content: '<p>ch2</p>', title: 'Ch2', byline: 'Parker Lewis' });
+    convertBookToEpub.mockReturnValue('/tmp/book.epub');
+    sendToKindle.mockResolvedValue(undefined);
+
+    await main();
+
+    expect(convertBookToEpub).toHaveBeenCalledWith(
+      expect.objectContaining({ author: 'Parker Lewis' }),
+    );
+  });
+
+  it('errors when --book is used with non-URL inputs', async () => {
+    process.argv = ['node', 'send2kindle.js', '--book', 'My Book', '/path/file.pdf'];
+    getInputType.mockReturnValue('pdf');
+
+    await expect(main()).rejects.toThrow('Book mode only supports URLs');
+  });
+
+  it('errors when --book is used with fewer than 2 URLs', async () => {
+    process.argv = ['node', 'send2kindle.js', '--book', 'My Book', 'https://a.com'];
+    getInputType.mockReturnValue('url');
+
+    await expect(main()).rejects.toThrow('Book mode requires at least 2 URLs');
+  });
+
+  it('skips sendToKindle in debug+book mode', async () => {
+    process.argv = [
+      'node',
+      'send2kindle.js',
+      '--debug',
+      '--book',
+      'My Book',
+      'https://a.com',
+      'https://b.com',
+    ];
+    getInputType.mockReturnValue('url');
+    extract
+      .mockResolvedValueOnce({ content: '<p>ch1</p>', title: 'Ch1', byline: 'A' })
+      .mockResolvedValueOnce({ content: '<p>ch2</p>', title: 'Ch2', byline: 'A' });
+    convertBookToEpub.mockReturnValue('/tmp/book.epub');
+
+    await main();
+    expect(sendToKindle).not.toHaveBeenCalled();
   });
 });

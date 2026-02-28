@@ -7,6 +7,7 @@ A CLI tool that extracts web articles, converts them to EPUB, and sends them to 
 - Extract articles from any URL using Mozilla's Readability
 - Extract tweets and Twitter/X articles via the fxtwitter API
 - Convert to EPUB format via pandoc
+- **Book mode** — combine multiple URLs into a single EPUB with chapters
 - Send PDFs and other files directly to Kindle
 - Debug mode to preview EPUBs locally before sending
 
@@ -81,6 +82,23 @@ send2kindle https://x.com/username/status/123456789
 # Debug mode: create EPUB locally without sending
 send2kindle --debug https://example.com/some-article
 send2kindle -d https://example.com/some-article
+
+# Book mode: combine multiple articles into one EPUB with chapters
+send2kindle --book "My Book Title" https://example.com/ch1 https://example.com/ch2
+send2kindle -b "My Book Title" -a "Author Name" url1 url2 url3
+```
+
+### Book mode
+
+Use `--book "Title"` (or `-b "Title"`) to combine multiple URLs into a single EPUB where each URL becomes a separate chapter. The article title from each URL is used as the chapter heading.
+
+Optionally specify `--author "Name"` (or `-a "Name"`) to set the book author. If omitted, the byline from the first article is used.
+
+```bash
+send2kindle --book "Gradually, Then Suddenly" --author "Parker Lewis" \
+  https://nakamotoinstitute.org/library/gradually-then-suddenly/bitcoin-obsoletes-all-other-money/ \
+  https://nakamotoinstitute.org/library/gradually-then-suddenly/bitcoin-not-blockchain/ \
+  https://nakamotoinstitute.org/library/gradually-then-suddenly/bitcoin-is-not-backed-by-nothing/
 ```
 
 ### Debug mode

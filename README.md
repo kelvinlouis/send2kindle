@@ -8,7 +8,7 @@ A CLI tool that extracts web articles, converts them to EPUB, and sends them to 
 - Extract tweets and Twitter/X articles via the fxtwitter API
 - Convert to EPUB format via pandoc
 - **Book mode** — combine multiple URLs into a single EPUB with chapters
-- Send PDFs and other files directly to Kindle
+- Send PDFs directly to Kindle (with optional text extraction via `--extract`)
 - Debug mode to preview EPUBs locally before sending
 
 ## Prerequisites
@@ -73,8 +73,12 @@ export SMTP_PASSWORD="abcd-efgh-ijkl-mnop"  # Gmail app password
 # Send a web article to Kindle
 send2kindle https://example.com/some-article
 
-# Send a PDF to Kindle
+# Send a PDF to Kindle (sent as-is, preserving original layout)
 send2kindle /path/to/document.pdf
+
+# Extract PDF to EPUB (loses original layout, useful for simpler/smaller PDFs)
+send2kindle --extract /path/to/document.pdf
+send2kindle -e /path/to/document.pdf
 
 # Send a tweet or Twitter/X article
 send2kindle https://x.com/username/status/123456789

@@ -4,13 +4,15 @@ import path from 'path';
 import { loadConfig } from './src/config.js';
 import { getInputType } from './src/utils.js';
 import { extract } from './src/extractors/index.js';
+import { extractPdf, downloadPdf } from './src/extractors/pdf.js';
 import { convertToEpub, convertBookToEpub } from './src/converter.js';
 import { sendToKindle } from './src/mailer.js';
 import { parseArgs, printUsage, main } from './send2kindle.js';
 
 vi.mock('fs', () => ({
-  default: { existsSync: vi.fn() },
+  default: { existsSync: vi.fn(), unlinkSync: vi.fn() },
   existsSync: vi.fn(),
+  unlinkSync: vi.fn(),
 }));
 
 vi.mock('./src/config.js', () => ({
@@ -23,6 +25,11 @@ vi.mock('./src/utils.js', () => ({
 
 vi.mock('./src/extractors/index.js', () => ({
   extract: vi.fn(),
+}));
+
+vi.mock('./src/extractors/pdf.js', () => ({
+  extractPdf: vi.fn(),
+  downloadPdf: vi.fn(),
 }));
 
 vi.mock('./src/converter.js', () => ({
@@ -118,6 +125,22 @@ describe('parseArgs', () => {
     expect(result.inputs).toEqual(['https://a.com', 'https://b.com']);
   });
 
+  it('parses --extract flag', () => {
+    const result = parseArgs([null, null, '--extract', '/path/file.pdf']);
+    expect(result.extract).toBe(true);
+    expect(result.input).toBe('/path/file.pdf');
+  });
+
+  it('parses -e shorthand for --extract', () => {
+    const result = parseArgs([null, null, '-e', '/path/file.pdf']);
+    expect(result.extract).toBe(true);
+  });
+
+  it('defaults extract to false', () => {
+    const result = parseArgs([null, null, '/path/file.pdf']);
+    expect(result.extract).toBe(false);
+  });
+
   it('returns null book and author when not provided', () => {
     const result = parseArgs([null, null, 'https://a.com']);
     expect(result.book).toBeNull();
@@ -179,14 +202,37 @@ describe('main', () => {
     expect(convertToEpub).toHaveBeenCalledWith(expect.objectContaining({ author: 'MySite' }));
   });
 
-  it('handles PDF input', async () => {
+  it('sends PDF directly by default', async () => {
     process.argv = ['node', 'send2kindle.js', '/path/file.pdf'];
     getInputType.mockReturnValue('pdf');
     fs.existsSync.mockReturnValue(true);
     sendToKindle.mockResolvedValue(undefined);
 
     await main();
+    expect(extractPdf).not.toHaveBeenCalled();
     expect(sendToKindle).toHaveBeenCalledWith(path.resolve('/path/file.pdf'), expect.any(Object));
+  });
+
+  it('extracts and converts PDF with --extract flag', async () => {
+    process.argv = ['node', 'send2kindle.js', '--extract', '/path/file.pdf'];
+    getInputType.mockReturnValue('pdf');
+    fs.existsSync.mockReturnValue(true);
+    extractPdf.mockResolvedValue({
+      content: '<p>PDF text</p>',
+      title: 'My PDF',
+      byline: 'Author',
+      textContent: 'PDF text',
+      siteName: null,
+    });
+    convertToEpub.mockReturnValue('/tmp/test.epub');
+    sendToKindle.mockResolvedValue(undefined);
+
+    await main();
+    expect(extractPdf).toHaveBeenCalledWith(path.resolve('/path/file.pdf'));
+    expect(convertToEpub).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'My PDF', author: 'Author' }),
+    );
+    expect(sendToKindle).toHaveBeenCalled();
   });
 
   it('throws when PDF does not exist', async () => {
@@ -227,13 +273,56 @@ describe('main', () => {
     expect(sendToKindle).not.toHaveBeenCalled();
   });
 
-  it('still sends in debug+pdf mode', async () => {
-    process.argv = ['node', 'send2kindle.js', '--debug', '/path/file.pdf'];
+  it('creates EPUB in debug mode for PDF input with --extract', async () => {
+    process.argv = ['node', 'send2kindle.js', '--debug', '--extract', '/path/file.pdf'];
     getInputType.mockReturnValue('pdf');
     fs.existsSync.mockReturnValue(true);
+    extractPdf.mockResolvedValue({
+      content: '<p>text</p>',
+      title: 'PDF',
+      byline: null,
+      textContent: 'text',
+      siteName: null,
+    });
+    convertToEpub.mockReturnValue('/tmp/test.epub');
+
+    await main();
+    expect(extractPdf).toHaveBeenCalled();
+    expect(convertToEpub).toHaveBeenCalled();
+    expect(sendToKindle).not.toHaveBeenCalled();
+  });
+
+  it('sends PDF URL directly by default', async () => {
+    process.argv = ['node', 'send2kindle.js', 'https://example.com/doc.pdf'];
+    getInputType.mockReturnValue('pdf-url');
+    downloadPdf.mockResolvedValue('/tmp/doc.pdf');
     sendToKindle.mockResolvedValue(undefined);
 
     await main();
+    expect(downloadPdf).toHaveBeenCalled();
+    expect(extractPdf).not.toHaveBeenCalled();
+    expect(sendToKindle).toHaveBeenCalledWith('/tmp/doc.pdf', expect.any(Object));
+  });
+
+  it('extracts PDF URL with --extract flag', async () => {
+    process.argv = ['node', 'send2kindle.js', '--extract', 'https://example.com/doc.pdf'];
+    getInputType.mockReturnValue('pdf-url');
+    downloadPdf.mockResolvedValue('/tmp/doc.pdf');
+    extractPdf.mockResolvedValue({
+      content: '<p>PDF text</p>',
+      title: 'Remote PDF',
+      byline: 'Author',
+      textContent: 'PDF text',
+      siteName: null,
+    });
+    convertToEpub.mockReturnValue('/tmp/test.epub');
+    sendToKindle.mockResolvedValue(undefined);
+
+    await main();
+    expect(downloadPdf).toHaveBeenCalledWith('https://example.com/doc.pdf');
+    expect(extractPdf).toHaveBeenCalledWith('/tmp/doc.pdf');
+    expect(convertToEpub).toHaveBeenCalledWith(expect.objectContaining({ title: 'Remote PDF' }));
+    expect(fs.unlinkSync).toHaveBeenCalledWith('/tmp/doc.pdf');
     expect(sendToKindle).toHaveBeenCalled();
   });
 

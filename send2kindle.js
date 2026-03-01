@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { loadConfig } from './src/config.js';
 import { getInputType } from './src/utils.js';
 import { extract } from './src/extractors/index.js';
+import { extractPdf, downloadPdf } from './src/extractors/pdf.js';
 import { convertToEpub, convertBookToEpub } from './src/converter.js';
 import { sendToKindle } from './src/mailer.js';
 
@@ -15,6 +16,7 @@ import { sendToKindle } from './src/mailer.js';
 export function parseArgs(args) {
   const result = {
     debug: false,
+    extract: false,
     input: null,
     inputs: [],
     book: null,
@@ -25,6 +27,8 @@ export function parseArgs(args) {
     const arg = args[i];
     if (arg === '--debug' || arg === '-d') {
       result.debug = true;
+    } else if (arg === '--extract' || arg === '-e') {
+      result.extract = true;
     } else if ((arg === '--book' || arg === '-b') && i + 1 < args.length) {
       result.book = args[++i];
     } else if ((arg === '--author' || arg === '-a') && i + 1 < args.length) {
@@ -50,6 +54,7 @@ export function printUsage() {
   console.log('');
   console.log('Options:');
   console.log('  --debug, -d            Save EPUB in current directory instead of sending');
+  console.log('  --extract, -e          Extract PDF to EPUB (reflows text, loses original layout)');
   console.log('  --book, -b <title>     Combine multiple URLs into one book with chapters');
   console.log('  --author, -a <name>    Set the book author (optional, defaults to first article)');
   console.log('');
@@ -141,20 +146,43 @@ export async function main() {
       });
       break;
 
-    case 'pdf':
+    case 'pdf': {
       console.log('\u{1F4C4} Input detected: PDF file');
       if (!fs.existsSync(args.input)) {
         throw new Error(`PDF file not found: ${args.input}`);
       }
-      fileToSend = path.resolve(args.input);
-      console.log(`\u2713 PDF file found: ${fileToSend}`);
-
-      if (args.debug) {
-        console.log('');
-        console.log('\u26A0\uFE0F  Note: Debug mode only applies to URL-based articles.');
-        console.log('PDF files are ready to send as-is.');
+      if (args.extract) {
+        const pdfArticle = await extractPdf(path.resolve(args.input));
+        fileToSend = convertToEpub({
+          htmlContent: pdfArticle.content,
+          title: pdfArticle.title,
+          author: pdfArticle.byline,
+          debugMode: args.debug,
+        });
+      } else {
+        fileToSend = path.resolve(args.input);
+        console.log(`\u2713 PDF file found: ${fileToSend}`);
       }
       break;
+    }
+
+    case 'pdf-url': {
+      console.log('\u{1F4C4} Input detected: PDF URL');
+      const tmpPdfPath = await downloadPdf(args.input);
+      if (args.extract) {
+        const pdfUrlArticle = await extractPdf(tmpPdfPath);
+        fileToSend = convertToEpub({
+          htmlContent: pdfUrlArticle.content,
+          title: pdfUrlArticle.title,
+          author: pdfUrlArticle.byline,
+          debugMode: args.debug,
+        });
+        fs.unlinkSync(tmpPdfPath);
+      } else {
+        fileToSend = tmpPdfPath;
+      }
+      break;
+    }
 
     case 'file':
       console.log('\u{1F4C1} Input detected: File');
@@ -174,7 +202,7 @@ export async function main() {
       );
   }
 
-  if (args.debug && inputType === 'url') {
+  if (args.debug && (inputType === 'url' || inputType === 'pdf' || inputType === 'pdf-url')) {
     console.log('');
     console.log('\u2705 Debug mode: EPUB created but NOT sent to Kindle');
     console.log('\u{1F4D6} You can now open the EPUB file with your local reader to verify it.');

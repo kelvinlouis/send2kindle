@@ -4,6 +4,18 @@ import path from 'path';
 import os from 'os';
 import { commandExists, sanitizeFilename, escapeYaml, replaceYouTubeEmbeds } from './utils.js';
 
+const EPUB_CSS = `
+body { margin: 5%; text-align: justify; font-size: medium; }
+h1, h2, h3, h4, h5, h6 { text-align: left; }
+code { font-family: monospace; }
+pre, code { font-size: 0.75em; }
+pre { white-space: pre-wrap; word-wrap: break-word; }
+code{ white-space: pre-wrap; }
+nav#toc ol, nav#landmarks ol { padding: 0; margin-left: 1em; }
+nav#toc ol li, nav#landmarks ol li { list-style-type: none; margin: 0; padding: 0; }
+em { font-style: italic; }
+`;
+
 /**
  * Convert HTML content to EPUB using pandoc with YAML metadata block.
  *
@@ -62,10 +74,13 @@ subject: ${escapedTitle}
 </body>
 </html>`;
 
+  const cssPath = path.join(tmpDir, `${safeTitle}.css`);
+
   fs.writeFileSync(htmlPath, fullHtml, 'utf-8');
   fs.writeFileSync(metadataPath, yamlMetadata, 'utf-8');
+  fs.writeFileSync(cssPath, EPUB_CSS, 'utf-8');
 
-  const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}"`;
+  const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}" --css="${cssPath}"`;
 
   execSync(pandocCmd, {
     encoding: 'utf-8',
@@ -144,10 +159,13 @@ ${replaceYouTubeEmbeds(ch.htmlContent)}`,
 </body>
 </html>`;
 
+  const cssPath = path.join(tmpDir, `${safeTitle}.css`);
+
   fs.writeFileSync(htmlPath, fullHtml, 'utf-8');
   fs.writeFileSync(metadataPath, yamlMetadata, 'utf-8');
+  fs.writeFileSync(cssPath, EPUB_CSS, 'utf-8');
 
-  const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}" --epub-chapter-level=1`;
+  const pandocCmd = `pandoc "${htmlPath}" -V lang=en -o "${epubPath}" --metadata-file="${metadataPath}" --css="${cssPath}" --epub-chapter-level=1`;
 
   execSync(pandocCmd, {
     encoding: 'utf-8',

@@ -51,6 +51,22 @@ describe('getInputType', () => {
     expect(getInputType('/path/to/file.PDF')).toBe('pdf');
   });
 
+  it("returns 'pdf-url' for URL ending in .pdf", () => {
+    expect(getInputType('https://example.com/doc.pdf')).toBe('pdf-url');
+  });
+
+  it("returns 'pdf-url' for URL ending in .PDF (case insensitive)", () => {
+    expect(getInputType('https://example.com/doc.PDF')).toBe('pdf-url');
+  });
+
+  it("returns 'pdf-url' for PDF URL with query params", () => {
+    expect(getInputType('https://example.com/doc.pdf?dl=1')).toBe('pdf-url');
+  });
+
+  it("returns 'url' for non-PDF URL", () => {
+    expect(getInputType('https://example.com/article')).toBe('url');
+  });
+
   it("returns 'file' when path exists on disk", () => {
     fs.existsSync.mockReturnValue(true);
     expect(getInputType('/path/to/file.epub')).toBe('file');

@@ -18,6 +18,9 @@ export function commandExists(cmd) {
  */
 export function getInputType(input) {
   if (input.startsWith('http://') || input.startsWith('https://')) {
+    if (new URL(input).pathname.toLowerCase().endsWith('.pdf')) {
+      return 'pdf-url';
+    }
     return 'url';
   }
   if (input.toLowerCase().endsWith('.pdf')) {

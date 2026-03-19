@@ -1,5 +1,5 @@
 {
-  "name": "send2kindle",
+  "name": "@kelvinlouis/send2kindle",
   "version": "1.0.0",
   "description": "Send articles and PDFs to your Kindle device",
   "type": "module",

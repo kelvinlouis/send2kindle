@@ -21,6 +21,11 @@
   ],
   "author": "Kelvin Louis",
   "license": "MIT",
+  "files": [
+    "send2kindle.js",
+    "src/**/*.js",
+    "!src/**/*.test.js"
+  ],
   "devDependencies": {
     "prettier": "^3.8.1",
     "vitest": "^3.0.0"

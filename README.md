@@ -33,10 +33,10 @@ sudo dnf install pandoc
 
 ```bash
 # Install globally from npm
-npm install -g send2kindle
+npm install -g @kelvinlouis/send2kindle
 
 # Or run directly with npx
-npx send2kindle https://example.com/article
+npx @kelvinlouis/send2kindle https://example.com/article
 ```
 
 ## Configuration
